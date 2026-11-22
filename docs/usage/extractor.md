@@ -8,7 +8,7 @@ The extractor endpoint extracts direct video stream URLs from various video host
 
 Use these exact strings as the `host` query parameter. The canonical list is defined in [`mediaflow_proxy/extractors/factory.py`](https://github.com/mhdzumair/mediaflow-proxy/blob/main/mediaflow_proxy/extractors/factory.py) (`ExtractorFactory._extractors`).
 
-The matching is **case-insensitive** — `vidfast`, `VidFast`, and `VIDFAST` are all accepted.
+The API uses case-sensitive provider names, such as `VidFast` and `Voe`.
 
 | `host` value | Notes |
 |---|---|
@@ -18,7 +18,8 @@ The matching is **case-insensitive** — `vidfast`, `VidFast`, and `VIDFAST` are
 | `Fastream` | |
 | `FileLions` | |
 | `FileMoon` | |
-| `Gupload` | |
+| `FireStream` | `firestream.to`, `firestream.site`, and `frstream.life` watch or embed URLs |
+| `Gupload` | GUpload player config for `.site`, `.xyz`, and `.io`. The URL generator defaults to HLS. MP4 requests require an MP4 source. |
 | `LiveTV` | |
 | `LuluStream` | |
 | `Maxstream` | |
@@ -32,9 +33,12 @@ The matching is **case-insensitive** — `vidfast`, `VidFast`, and `VIDFAST` are
 | `Uqload` | |
 | `Vavoo` | Vavoo.to streams |
 | `VidFast` | vidfast.pro (ythd.org → cloudnestra.com chain) |
+| `Veev` | `veev.to` embeds, MP4 |
+| `VidHide` | `moflix-stream.click` embeds, HLS |
 | `Vidmoly` | |
 | `Vidoza` | |
 | `VixCloud` | |
+| `Vixeo` | `vixeo.io` embeds, HLS or MP4 according to player config |
 | `Voe` | |
 
 ### Endpoints
@@ -64,7 +68,7 @@ For HLS streams, using the `.m3u8` extension ensures the player uses the correct
 |-----------|----------|-------------|
 | `host` | Yes | Extractor host name (e.g., `TurboVidPlay`, `Vidoza`) |
 | `d` | Yes | Destination URL (the video page URL to extract) |
-| `api_password` | Yes* | API password (*if configured) |
+| `api_password` | Yes* | API password (*if configured). Client code can send it as a header. |
 | `redirect_stream` | No | If `true`, returns 302 redirect to the proxied stream URL |
 
 ### Example Usage
@@ -79,4 +83,6 @@ GET /extractor/video?host=Vidoza&d=https://videzz.net/example.html&api_password=
 GET /extractor/video.m3u8?host=TurboVidPlay&d=https://turbovidhls.com/t/abc123&api_password=your_password&redirect_stream=true
 ```
 
-This redirects to the proxied HLS manifest URL, and because the request URL contains `.m3u8`, players like ExoPlayer will correctly use HLS playback.
+This redirects to the proxied HLS manifest URL. The `.m3u8` suffix lets players like ExoPlayer select the HLS playback pipeline. When the server has an API password, the redirect uses an encrypted token.
+
+See [local usage and playback checks](../usage.md) for authenticated examples and format selection.

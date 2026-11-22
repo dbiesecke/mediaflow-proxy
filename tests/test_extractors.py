@@ -8,12 +8,17 @@ Test URLs are loaded from environment variables for privacy:
 If an environment variable is not set, the test for that extractor is skipped.
 """
 
+import base64
+from itertools import cycle
+import json
 import os
 
 import aiohttp
 import pytest
 
+from mediaflow_proxy.extractors.base import HttpResponse
 from mediaflow_proxy.extractors.factory import ExtractorFactory
+from mediaflow_proxy.extractors.gupload import GuploadExtractor
 
 # All extractors registered in the factory
 # The env var name is derived from the extractor name (uppercase)
@@ -192,3 +197,34 @@ async def test_extractor_stream_accessible(extractor_name: str):
 
         except aiohttp.ClientError as e:
             pytest.fail(f"Failed to access stream URL: {e}")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("extension,endpoint", [("mp4", "proxy_stream_endpoint"), ("m3u8", "hls_manifest_proxy")])
+async def test_gupload_uses_modern_player_config(monkeypatch, extension, endpoint):
+    url = "https://gupload.site/data/e/example"
+    media = f"https://gupload.site/data/media/example.{extension}?token=sample"
+    config = json.dumps({"videoUrl": media}).encode()
+    encoded = base64.b64encode(bytes(a ^ b for a, b in zip(config, cycle(b"abcd")))).decode()
+    html = (
+        "<script>var _p=['a','b','c','d'];return _p[0]+_p[1]+_p[2]+_p[3];"
+        f"var _cfg = _dp('00000000~{encoded}');initModernPlayer('player',_cfg);</script>"
+    )
+    extractor = ExtractorFactory.get_extractor("Gupload", {})
+
+    async def fetch(destination, **kwargs):
+        assert destination == url
+        return HttpResponse(200, {}, html, html.encode(), url)
+
+    monkeypatch.setattr(extractor, "_make_request", fetch)
+    result = await extractor.extract(url)
+    assert result["destination_url"] == media
+    assert result["mediaflow_endpoint"] == endpoint
+    assert result["request_headers"]["referer"] == "https://gupload.site/"
+
+
+def test_gupload_preserves_legacy_payload():
+    payload = base64.b64encode(b'old|{"videoUrl":"https://gupload.xyz/example.m3u8"}').decode()
+    assert GuploadExtractor._player_config(f"<script>decodePayload('{payload}')</script>") == {
+        "videoUrl": "https://gupload.xyz/example.m3u8"
+    }

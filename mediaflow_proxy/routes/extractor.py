@@ -5,6 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Query, HTTPException, Request, Depends, BackgroundTasks
 from fastapi.responses import RedirectResponse
 
+from mediaflow_proxy.configs import settings
 from mediaflow_proxy.extractors.base import ExtractorError
 from mediaflow_proxy.extractors.factory import ExtractorFactory
 from mediaflow_proxy.schemas import ExtractorURLParams
@@ -20,6 +21,7 @@ from mediaflow_proxy.utils.http_utils import (
     get_proxy_headers,
 )
 from mediaflow_proxy.utils.base64_utils import process_potential_base64_url
+from mediaflow_proxy.utils.crypto_utils import encryption_handler
 from mediaflow_proxy.utils import redis_utils
 
 extractor_router = APIRouter()
@@ -44,13 +46,13 @@ async def refresh_extractor_cache(
 ):
     """Asynchronously refreshes the extractor cache in the background."""
     try:
-        logger.info(f"Background cache refresh started for key: {cache_key}")
+        logger.info("Background cache refresh started for %s", extractor_params.host)
         extractor = ExtractorFactory.get_extractor(extractor_params.host, proxy_headers.request)
         response = await extractor.extract(extractor_params.destination, **extractor_params.extra_params)
         await set_cache_extractor_result(cache_key, response)
-        logger.info(f"Background cache refresh completed for key: {cache_key}")
+        logger.info("Background cache refresh completed for %s", extractor_params.host)
     except Exception as e:
-        logger.error(f"Background cache refresh failed for key {cache_key}: {e}")
+        logger.error("Background cache refresh failed for %s (%s)", extractor_params.host, type(e).__name__)
 
 
 # Extension to content-type mapping for player compatibility
@@ -100,7 +102,7 @@ async def _extract_url_impl(
         response = await get_cached_extractor_result(instance_cache_key)
 
         if response:
-            logger.info(f"Serving from cache for key: {instance_cache_key}")
+            logger.info("Serving cached extraction for %s", extractor_params.host)
             # Schedule a background refresh, but only if:
             # 1. The host is NOT in the no-refresh list (hosts with unique per-extraction URLs)
             # 2. The cooldown has elapsed (prevents flooding upstream)
@@ -123,12 +125,12 @@ async def _extract_url_impl(
 
             if not await redis_utils.mark_inflight(inflight_key, ttl=60):
                 # Another worker is extracting - wait for them to finish and check cache
-                logger.info(f"Waiting for in-flight extraction (cross-worker) for key: {instance_cache_key}")
+                logger.info("Waiting for in-flight extraction for %s", extractor_params.host)
                 if await redis_utils.wait_for_completion(inflight_key, timeout=30.0):
                     # Extraction completed, check cache
                     response = await get_cached_extractor_result(instance_cache_key)
                     if response:
-                        logger.info(f"Serving from cache (after wait) for key: {instance_cache_key}")
+                        logger.info("Serving cached extraction after wait for %s", extractor_params.host)
 
             if response is None:
                 # We either marked it as in-flight (first) or waited and still no cache hit.
@@ -138,9 +140,9 @@ async def _extract_url_impl(
                         # Re-check cache after acquiring lock - another worker may have populated it
                         response = await get_cached_extractor_result(instance_cache_key)
                         if response:
-                            logger.info(f"Serving from cache (after lock) for key: {instance_cache_key}")
+                            logger.info("Serving cached extraction after lock for %s", extractor_params.host)
                         else:
-                            logger.info(f"Cache miss for key: {instance_cache_key}. Fetching fresh data.")
+                            logger.info("Fetching fresh extraction for %s", extractor_params.host)
                             try:
                                 extractor = ExtractorFactory.get_extractor(extractor_params.host, proxy_headers.request)
                                 response = await extractor.extract(
@@ -166,9 +168,10 @@ async def _extract_url_impl(
         if "request_headers" not in response:
             response["request_headers"] = {}
         response["request_headers"].update(proxy_headers.request)
-        response["mediaflow_proxy_url"] = str(
-            request.url_for(response.pop("mediaflow_endpoint")).replace(scheme=get_original_scheme(request))
-        )
+        endpoint = response.pop("mediaflow_endpoint")
+        if extractor_params.host == "Gupload" and ext == "mp4" and endpoint != "proxy_stream_endpoint":
+            raise HTTPException(status_code=400, detail="GUpload: this player exposes HLS only")
+        response["mediaflow_proxy_url"] = str(request.url_for(endpoint).replace(scheme=get_original_scheme(request)))
         response["query_params"] = response.get("query_params", {})
         # Add API password to query params
         response["query_params"]["api_password"] = request.query_params.get("api_password")
@@ -203,6 +206,9 @@ async def _extract_url_impl(
                 )
                 if key in response
             }
+            if encryption_handler:
+                encode_args["query_params"]["api_password"] = settings.api_password
+                encode_args["encryption_handler"] = encryption_handler
             stream_url = encode_mediaflow_proxy_url(
                 **encode_args,
                 response_headers=proxy_headers.response,
@@ -211,6 +217,8 @@ async def _extract_url_impl(
 
         return response
 
+    except HTTPException:
+        raise
     except DownloadError as e:
         logger.error(f"Extraction failed: {str(e)}")
         raise HTTPException(status_code=e.status_code, detail=str(e))

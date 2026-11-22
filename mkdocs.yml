@@ -47,6 +47,7 @@ nav:
       - Networking & reverse proxies: configuration/networking.md
       - Speed test: configuration/speedtest.md
   - Usage:
+      - Local setup & playback checks: usage.md
       - Overview & endpoints: usage/overview.md
       - Forward proxy: usage/forward.md
       - Video extractor: usage/extractor.md

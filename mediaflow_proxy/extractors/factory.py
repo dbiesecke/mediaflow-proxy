@@ -26,6 +26,10 @@ from mediaflow_proxy.extractors.fastream import FastreamExtractor
 from mediaflow_proxy.extractors.voe import VoeExtractor
 from mediaflow_proxy.extractors.vidfast import VidFastExtractor
 from mediaflow_proxy.extractors.streamhg import StreamHGExtractor
+from mediaflow_proxy.extractors.firestream import FireStreamExtractor
+from mediaflow_proxy.extractors.veev import VeevExtractor
+from mediaflow_proxy.extractors.vidhide import VidHideExtractor
+from mediaflow_proxy.extractors.vixeo import VixeoExtractor
 
 
 class ExtractorFactory:
@@ -57,6 +61,10 @@ class ExtractorFactory:
         "Sportsonline": SportsonlineExtractor,
         "VidFast": VidFastExtractor,
         "StreamHG": StreamHGExtractor,
+        "FireStream": FireStreamExtractor,
+        "Veev": VeevExtractor,
+        "VidHide": VidHideExtractor,
+        "Vixeo": VixeoExtractor,
     }
 
     @classmethod
