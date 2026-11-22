@@ -21,13 +21,15 @@ docker run -p 8888:8888 -e API_PASSWORD=your_password mhdzumair/mediaflow-proxy
 - DASH (ClearKey) to HLS, HLS manipulation, generic HTTP(S) proxy with custom headers  
 - Xtream Codes API proxy, Acestream, Telegram (MTProto) streaming  
 - Optional GPU transcoding (fMP4 H.264/AAC), pre-buffering, segment skip, stream transformers  
-- Redis-backed rate limiting, encrypted URL generation, reverse-proxy–friendly forwarded headers  
+- Redis-backed rate limiting, encrypted URL generation, reverse-proxy–friendly forwarded headers
+- Video extractors for FireStream, Veev, GUpload, VOE, Vixeo, and VidHide on `moflix-stream.click`. The URL generator defaults to HLS for GUpload.
 
 ## Docs and source
 
 | Resource | Link |
 |----------|------|
 | User & operator manual | [Documentation site](https://mhdzumair.github.io/mediaflow-proxy/) |
+| Local setup and extractor examples | [Usage guide](docs/usage.md) |
 | Markdown sources | [`docs/`](docs/) in this repository |
 | Build docs locally | `uv sync --group docs` then `uv run mkdocs serve` |
 

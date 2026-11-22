@@ -571,7 +571,11 @@
                             <option value="Fastream">Fastream</option>
                             <option value="FileLions">FileLions</option>
                             <option value="FileMoon">FileMoon</option>
+                            <option value="FireStream">FireStream</option>
                             <option value="Gupload">Gupload</option>
+                            <option value="Veev">Veev</option>
+                            <option value="VidHide">VidHide</option>
+                            <option value="Vixeo">Vixeo</option>
                             <option value="LiveTV">LiveTV</option>
                             <option value="LuluStream">LuluStream</option>
                             <option value="Maxstream">Maxstream</option>
@@ -2342,7 +2346,7 @@
         const HLS_EXTRACTOR_HOSTS = [
             'City', 'TurboVidPlay', 'FileMoon', 'StreamWish', 'VixCloud',
             'LiveTV', 'LuluStream', 'Fastream', 'Sportsonline',
-            'FileLions', 'Gupload', 'VidFast', 'Vidmoly', 'Voe'
+            'FileLions', 'Gupload', 'VidHide', 'VidFast', 'Vidmoly', 'Voe'
         ];
         
         // Handle extractor host selection change
@@ -2350,8 +2354,13 @@
             const host = document.getElementById('extractor-host').value;
             const extensionSelect = document.getElementById('extractor-extension');
             
+            if (host === 'Veev' && ['', 'm3u8'].includes(extensionSelect.value)) {
+                extensionSelect.value = 'mp4';
+                return;
+            }
+
             // Auto-suggest .m3u8 for HLS hosts if no extension is currently selected
-            if (HLS_EXTRACTOR_HOSTS.includes(host) && extensionSelect.value === '') {
+            if (HLS_EXTRACTOR_HOSTS.includes(host) && (extensionSelect.value === '' || host === 'Gupload')) {
                 extensionSelect.value = 'm3u8';
             } else if (!HLS_EXTRACTOR_HOSTS.includes(host) && extensionSelect.value === 'm3u8') {
                 // Reset to none if switching to non-HLS host (only if m3u8 was auto-selected)

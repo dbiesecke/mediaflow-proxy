@@ -1,65 +1,61 @@
-import re
 import base64
+from itertools import cycle
 import json
-from typing import Dict, Any
+import re
 from urllib.parse import urlparse
+
+from bs4 import BeautifulSoup, SoupStrainer
 
 from mediaflow_proxy.extractors.base import BaseExtractor, ExtractorError
 
 
 class GuploadExtractor(BaseExtractor):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.mediaflow_endpoint = "hls_manifest_proxy"
+    _hosts = {"gupload.xyz", "gupload.site", "gupload.io"}
 
-    async def extract(self, url: str) -> Dict[str, Any]:
-        parsed = urlparse(url)
-        if not parsed.hostname or "gupload.xyz" not in parsed.hostname:
-            raise ExtractorError("GUPLOAD: Invalid domain")
-
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/144 Safari/537.36"
-            ),
-            "Referer": "https://gupload.xyz/",
-            "Origin": "https://gupload.xyz",
-        }
-
-        # --- Fetch embed page ---
-        response = await self._make_request(url, headers=headers)
-        html = response.text
-
-        # --- Extract base64 payload ---
-        match = re.search(r"decodePayload\('([^']+)'\)", html)
-        if not match:
-            raise ExtractorError("GUPLOAD: Payload not found")
-
-        encoded = match.group(1).strip()
-
-        # --- Decode payload ---
+    @staticmethod
+    def _player_config(html: str) -> dict:
+        legacy = re.search(r"""decodePayload\(\s*['"]([^'"]+)['"]\s*\)""", html)
         try:
-            decoded = base64.b64decode(encoded).decode("utf-8", "ignore")
-            # payload format: <junk>|{json}
-            json_part = decoded.split("|", 1)[1]
-            payload = json.loads(json_part)
-        except Exception:
-            raise ExtractorError("GUPLOAD: Payload decode failed")
+            if legacy:
+                return json.loads(base64.b64decode(legacy[1].strip(), validate=True).split(b"|", 1)[1])
+            for script in BeautifulSoup(html, "lxml", parse_only=SoupStrainer("script")).find_all("script"):
+                source = script.string or ""
+                if "initModernPlayer" not in source:
+                    continue
+                config = re.search(r"\bvar\s+_cfg\s*=\s*_dp\('[0-9a-fA-F]{8}~([A-Za-z0-9+/=]{1,65536})'\)", source)
+                key = re.search(
+                    r"var _p=\['([^'\\]{1,16})','([^'\\]{1,16})','([^'\\]{1,16})','([^'\\]{1,16})'\]"
+                    r";return _p\[0\]\+_p\[1\]\+_p\[2\]\+_p\[3\];",
+                    source,
+                )
+                if config and key:
+                    encoded = base64.b64decode(config[1], validate=True)
+                    return json.loads(bytes(a ^ b for a, b in zip(encoded, cycle("".join(key.groups()).encode()))))
+        except (IndexError, ValueError) as exc:
+            raise ExtractorError("GUpload: invalid player configuration") from exc
+        raise ExtractorError("GUpload: player configuration not found")
 
-        # --- Extract HLS URL ---
-        hls_url = payload.get("videoUrl")
-        if not hls_url:
-            raise ExtractorError("GUPLOAD: videoUrl missing")
+    async def extract(self, url: str, **kwargs) -> dict:
+        parsed = urlparse(url)
+        if parsed.scheme != "https" or parsed.netloc not in self._hosts:
+            raise ExtractorError("GUpload: invalid embed domain")
 
-        # --- Validate stream (prevents client timeout) ---
-        test = await self._make_request(hls_url, headers=headers, raise_on_status=False)
-        if test.status >= 400:
-            raise ExtractorError(f"GUPLOAD: Stream unavailable ({test.status})")
+        origin = f"https://{parsed.netloc}"
+        headers = {**self.base_headers, "referer": f"{origin}/", "origin": origin}
+        page = await self._make_request(url, headers=headers, allow_redirects=False)
+        data = self._player_config(page.text)
+        media_url = data.get("videoUrl") if isinstance(data, dict) else None
+        if not isinstance(media_url, str):
+            raise ExtractorError("GUpload: player configuration has no video URL")
 
-        # Return MASTER playlist
+        media = urlparse(media_url)
+        if media.scheme != "https" or media.netloc not in self._hosts:
+            raise ExtractorError("GUpload: unsupported media origin")
+        extension = media.path.lower().rsplit(".", 1)[-1]
+        if extension not in {"m3u8", "mp4"}:
+            raise ExtractorError("GUpload: unsupported media format")
         return {
-            "destination_url": hls_url,
+            "destination_url": media_url,
             "request_headers": headers,
-            "mediaflow_endpoint": self.mediaflow_endpoint,
+            "mediaflow_endpoint": "hls_manifest_proxy" if extension == "m3u8" else "proxy_stream_endpoint",
         }

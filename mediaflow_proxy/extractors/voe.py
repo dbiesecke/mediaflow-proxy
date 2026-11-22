@@ -15,20 +15,20 @@ class VoeExtractor(BaseExtractor):
         response = await self._make_request(url)
 
         # See https://github.com/Gujal00/ResolveURL/blob/master/script.module.resolveurl/lib/resolveurl/plugins/voesx.py
-        redirect_pattern = r"""window\.location\.href\s*=\s*'([^']+)"""
+        redirect_pattern = r"""window\.location\.href\s*=\s*(['"])([^'"]+)\1"""
         redirect_match = re.search(redirect_pattern, response.text, re.DOTALL)
         if redirect_match:
             if redirected:
                 raise ExtractorError("VOE: too many redirects")
 
-            return await self.extract(redirect_match.group(1))
+            return await self.extract(urljoin(response.url, redirect_match.group(2)), redirected=True)
 
         code_and_script_pattern = r'json">\["([^"]+)"]</script>\s*<script\s*src="([^"]+)'
         code_and_script_match = re.search(code_and_script_pattern, response.text, re.DOTALL)
         if not code_and_script_match:
             raise ExtractorError("VOE: unable to locate obfuscated payload or external script URL")
 
-        script_response = await self._make_request(urljoin(url, code_and_script_match.group(2)))
+        script_response = await self._make_request(urljoin(response.url, code_and_script_match.group(2)))
 
         luts_pattern = r"(\[(?:'\W{2}'[,\]]){1,9})"
         luts_match = re.search(luts_pattern, script_response.text, re.DOTALL)
@@ -41,7 +41,7 @@ class VoeExtractor(BaseExtractor):
         if not final_url:
             raise ExtractorError("VOE: failed to extract video URL")
 
-        self.base_headers["referer"] = url
+        self.base_headers["referer"] = response.url
         return {
             "destination_url": final_url,
             "request_headers": self.base_headers,
